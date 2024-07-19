@@ -3015,7 +3015,11 @@ read_gdb_index_from_buffer (const char *filename,
      indices.  */
   if (version < 4)
     {
+#ifdef CRASH_MERGE
+      static int warning_printed = 1;
+#else
       static int warning_printed = 0;
+#endif
       if (!warning_printed)
 	{
 	  warning (_("Skipping obsolete .gdb_index section in %s."),
@@ -3034,7 +3038,11 @@ read_gdb_index_from_buffer (const char *filename,
      "set use-deprecated-index-sections on".  */
   if (version < 6 && !deprecated_ok)
     {
+#ifdef CRASH_MERGE
+      static int warning_printed = 1;
+#else
       static int warning_printed = 0;
+#endif
       if (!warning_printed)
 	{
 	  warning (_("\
@@ -4917,7 +4925,10 @@ dw2_find_pc_sect_compunit_symtab (struct objfile *objfile,
   result = recursively_find_pc_sect_compunit_symtab
     (dw2_instantiate_symtab (data, per_objfile, false), pc);
 
-  gdb_assert (result != NULL);
+  if (warn_if_readin && result == nullptr)
+    warning (_("(Error: pc %s in address map, but not in symtab.)"),
+            paddress (objfile->arch (), pc));
+
   return result;
 }
 

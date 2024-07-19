@@ -712,6 +712,8 @@ public:
      next time.  If an objfile does not have the symbols, it will
      never have them.  */
   bool skip_jit_symbol_lookup = false;
+
+  bool all_symtabs_expanded = false;
 };
 
 /* A deleter for objfile.  */
@@ -747,9 +749,9 @@ extern int objfile_has_full_symbols (struct objfile *objfile);
 
 extern int objfile_has_symbols (struct objfile *objfile);
 
-extern int have_partial_symbols (void);
+extern "C" int have_partial_symbols (void);
 
-extern int have_full_symbols (void);
+extern "C" int have_full_symbols (void);
 
 extern void objfile_set_sym_fns (struct objfile *objfile,
 				 const struct sym_fns *sf);

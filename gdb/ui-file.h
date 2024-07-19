@@ -195,10 +195,10 @@ public:
 
   bool can_emit_style_escape () override;
 
-private:
   /* Sets the internal stream to FILE, and saves the FILE's file
      descriptor in M_FD.  */
   void set_stream (FILE *file);
+private:
 
   /* The file.  */
   FILE *m_file;

@@ -1870,27 +1870,46 @@ search_name_hash (enum language language, const char *search_name)
    variable and thus can probably assume it will never hit the C++
    code).  */
 
+#ifdef CRASH_MERGE
+static void gdb_bait_and_switch(char *, struct symbol *);
+#endif
+
 struct block_symbol
 lookup_symbol_in_language (const char *name, const struct block *block,
 			   const domain_enum domain, enum language lang,
 			   struct field_of_this_result *is_a_field_of_this)
 {
+  struct block_symbol result;
   demangle_result_storage storage;
   const char *modified_name = demangle_for_lookup (name, lang, storage);
 
-  return lookup_symbol_aux (modified_name,
+  result = lookup_symbol_aux (modified_name,
 			    symbol_name_match_type::FULL,
 			    block, domain, lang,
 			    is_a_field_of_this);
+#ifdef CRASH_MERGE
+  if (result.symbol && (domain == VAR_DOMAIN))
+        gdb_bait_and_switch((char *)modified_name, result.symbol);
+#endif
+  return result;
 }
 
 /* See symtab.h.  */
+
+#ifdef CRASH_MERGE
+static const struct block *gdb_get_crash_block(void);
+#endif
 
 struct block_symbol
 lookup_symbol (const char *name, const struct block *block,
 	       domain_enum domain,
 	       struct field_of_this_result *is_a_field_of_this)
 {
+#ifdef CRASH_MERGE
+  if (!block)
+    block = gdb_get_crash_block();
+#endif
+
   return lookup_symbol_in_language (name, block, domain,
 				    current_language->la_language,
 				    is_a_field_of_this);
@@ -6886,3 +6905,905 @@ If zero then the symbol cache is disabled."),
   gdb::observers::new_objfile.attach (symtab_new_objfile_observer);
   gdb::observers::free_objfile.attach (symtab_free_objfile_observer);
 }
+
+#ifdef CRASH_MERGE
+#include "gdb-stabs.h"
+#include "gdbsupport/version.h"
+#define GDB_COMMON
+#include "../../defs.h"
+
+static void get_member_data(struct gnu_request *, struct type *, long, int);
+static void walk_enum(struct type *, struct gnu_request *);
+static void eval_enum(struct type *, struct gnu_request *);
+static void gdb_get_line_number(struct gnu_request *);
+static void gdb_get_datatype(struct gnu_request *);
+static void gdb_get_symbol_type(struct gnu_request *);
+static void gdb_command_exists(struct gnu_request *);
+static void gdb_debug_command(struct gnu_request *);
+static void gdb_function_numargs(struct gnu_request *);
+static void gdb_add_symbol_file(struct gnu_request *);
+static void gdb_delete_symbol_file(struct gnu_request *);
+static void gdb_patch_symbol_values(struct gnu_request *);
+static void get_user_print_option_address(struct gnu_request *);
+extern int get_frame_offset(CORE_ADDR);
+static void gdb_set_crash_block(struct gnu_request *);
+extern "C" void gdb_command_funnel(struct gnu_request *);
+void gdb_command_funnel_1(struct gnu_request *);
+static long lookup_struct_contents(struct gnu_request *);
+static void iterate_datatypes(struct gnu_request *);
+
+struct objfile *gdb_kernel_objfile = { 0 };
+
+static ulong gdb_merge_flags = 0;
+#define KERNEL_SYMBOLS_PATCHED (0x1)
+
+#undef STREQ
+#define STREQ(A, B)      (A && B && (strcmp(A, B) == 0))
+#define TYPE_CODE(t)        (t->code ())
+#define TYPE_TAG_NAME(t) (TYPE_MAIN_TYPE(t)->name)
+#define TYPE_NFIELDS(t) (t->num_fields ())
+#define TYPE_NAME(t) (t->name ())
+
+/*
+ *  All commands from above come through here.
+ */
+void
+gdb_command_funnel(struct gnu_request *req)
+{
+        try {
+                gdb_command_funnel_1(req);
+        } catch (const gdb_exception &ex) {
+                if (req->flags & GNU_RETURN_ON_ERROR)
+                        req->flags |= GNU_COMMAND_FAILED;
+                else
+                        throw ex;
+        }
+}
+
+void
+gdb_command_funnel_1(struct gnu_request *req)
+{
+        struct symbol *sym;
+
+        if (req->command != GNU_VERSION && req->command != GNU_USER_PRINT_OPTION) {
+                (dynamic_cast<stdio_file *>gdb_stdout)->set_stream(req->fp);
+                (dynamic_cast<stdio_file *>gdb_stderr)->set_stream(req->fp);
+        }
+
+        switch (req->command)
+        {
+        case GNU_VERSION:
+                req->buf = (char *)version;
+                break;
+
+        case GNU_PASS_THROUGH:
+                execute_command(req->buf,
+                        req->flags & GNU_FROM_TTY_OFF ? FALSE : TRUE);
+                break;
+
+        case GNU_USER_PRINT_OPTION:
+                get_user_print_option_address(req);
+                break;
+
+        case GNU_RESOLVE_TEXT_ADDR:
+                sym = find_pc_function(req->addr);
+                if (!sym || TYPE_CODE(sym->type) != TYPE_CODE_FUNC)
+                        req->flags |= GNU_COMMAND_FAILED;
+                break;
+
+        case GNU_DISASSEMBLE:
+                if (req->addr2)
+                        sprintf(req->buf, "disassemble 0x%lx 0x%lx",
+                                req->addr, req->addr2);
+                else
+                        sprintf(req->buf, "disassemble 0x%lx", req->addr);
+                execute_command(req->buf, TRUE);
+                break;
+
+        case GNU_ADD_SYMBOL_FILE:
+                gdb_add_symbol_file(req);
+                break;
+
+        case GNU_DELETE_SYMBOL_FILE:
+                gdb_delete_symbol_file(req);
+                break;
+
+        case GNU_GET_LINE_NUMBER:
+                gdb_get_line_number(req);
+                break;
+
+        case GNU_GET_DATATYPE:
+                gdb_get_datatype(req);
+                break;
+
+        case GNU_GET_SYMBOL_TYPE:
+                gdb_get_symbol_type(req);
+                break;
+
+        case GNU_COMMAND_EXISTS:
+                gdb_command_exists(req);
+                break;
+
+        case GNU_ALPHA_FRAME_OFFSET:
+                req->value = 0;
+                break;
+
+        case GNU_FUNCTION_NUMARGS:
+                gdb_function_numargs(req);
+                break;
+
+        case GNU_DEBUG_COMMAND:
+                gdb_debug_command(req);
+                break;
+
+        case GNU_PATCH_SYMBOL_VALUES:
+                gdb_patch_symbol_values(req);
+                break;
+
+        case GNU_SET_CRASH_BLOCK:
+                gdb_set_crash_block(req);
+                break;
+
+        case GNU_GET_FUNCTION_RANGE:
+                {
+                        CORE_ADDR start, end;
+                        if (!find_pc_partial_function(req->pc, NULL, &start, &end))
+                                req->flags |= GNU_COMMAND_FAILED;
+                        else {
+                                req->addr = (ulong)start;
+                                req->addr2 = (ulong)end;
+                        }
+                }
+                break;
+
+        case GNU_LOOKUP_STRUCT_CONTENTS:
+                req->value = lookup_struct_contents(req);
+                break;
+
+        case GNU_ITERATE_DATATYPES:
+                iterate_datatypes(req);
+                break;
+
+        default:
+                req->flags |= GNU_COMMAND_FAILED;
+                break;
+        }
+}
+
+/*
+ *  Given a PC value, return the file and line number.
+ */
+static void
+gdb_get_line_number(struct gnu_request *req)
+{
+        struct symtab_and_line sal;
+        struct objfile *objfile;
+        CORE_ADDR pc;
+
+#define LASTCHAR(s)      (s[strlen(s)-1])
+
+        /*
+         * Prime the addrmap pump.
+         */
+        pc = req->addr;
+
+        sal = find_pc_line(pc, 0);
+
+        if (!sal.symtab) {
+                /*
+                 *  If a module address line number can't be found, it's typically
+                 *  due to its addrmap still containing offset values because its
+                 *  objfile doesn't have full symbols loaded.
+                 */
+                if (req->lm) {
+                        objfile = req->lm->loaded_objfile;
+                        if (!objfile->all_symtabs_expanded && objfile->sf) {
+                                objfile->sf->qf->expand_all_symtabs(objfile);
+                                objfile->all_symtabs_expanded = true;
+                                sal = find_pc_line(pc, 0);
+                        }
+                }
+                if (!sal.symtab) {
+                        req->buf[0] = '\0';
+                        return;
+                }
+        }
+
+        if (sal.symtab->filename && SYMTAB_DIRNAME(sal.symtab)) {
+                if (sal.symtab->filename[0] == '/')
+                        sprintf(req->buf, "%s: %d",
+                                sal.symtab->filename, sal.line);
+                else
+                        sprintf(req->buf, "%s%s%s: %d",
+                                SYMTAB_DIRNAME(sal.symtab),
+                                LASTCHAR(SYMTAB_DIRNAME(sal.symtab)) == '/' ? "" : "/",
+                                sal.symtab->filename, sal.line);
+        }
+}
+
+
+/*
+ * Follow the type linkage for full member and value type resolution, with callback
+ */
+static void drillDownType(struct gnu_request *req, struct type *type)
+{
+        while (type)
+        {
+                /* check out for stub types and pull in the definition instead */
+                if (TYPE_STUB(type) && TYPE_TAG_NAME(type)) {
+                        struct symbol *sym;
+                        sym = lookup_symbol(TYPE_TAG_NAME(type), 0, STRUCT_DOMAIN, 0).symbol;
+                        if (sym)
+                                type = sym->type;
+                }
+                switch (TYPE_CODE(type)) {
+                        drill_ops_t op;
+                        long l1, l2;
+                        int typecode;
+
+                case TYPE_CODE_PTR:
+                        req->tcb(EOP_POINTER, req, 0, 0, 0, 0);
+                        break;
+
+                case TYPE_CODE_TYPEDEF:
+                        req->is_typedef = 1;
+                        req->typecode = TYPE_CODE(type);
+                        if (!req->tcb(EOP_TYPEDEF, req, TYPE_NAME(type), 0, 0, 0))
+                                return;
+                        break;
+
+                case TYPE_CODE_FUNC:
+                        req->tcb(EOP_FUNCTION, req, 0, 0, 0, 0);
+                        break;
+
+                case TYPE_CODE_ARRAY:
+                        l1 = TYPE_LENGTH (type);
+                        l2 = TYPE_LENGTH (check_typedef(TYPE_TARGET_TYPE (type)));
+                        req->tcb(EOP_ARRAY, req, &l1, &l2, 0, 0);
+                        break;
+
+                case TYPE_CODE_VOID:
+                case TYPE_CODE_INT:
+                case TYPE_CODE_BOOL:
+                        l1 = TYPE_LENGTH(type);
+                        req->tcb(EOP_INT, req, &l1, 0, 0, 0);
+                        break;
+
+                case TYPE_CODE_UNION:
+                        op = EOP_UNION;
+                        goto label;
+
+                case TYPE_CODE_ENUM:
+                        op = EOP_ENUM;
+                        goto label;
+
+                case TYPE_CODE_STRUCT:
+                        op = EOP_STRUCT;
+                        goto label;
+
+                default:
+                        typecode = TYPE_CODE(type);
+                        req->tcb(EOP_OOPS, req, &typecode, "Unknown typecode", 0, 0);
+                        return; /* not reached */
+
+                label:
+                        l1 = TYPE_LENGTH(type);
+                        req->tcb(op, req, &l1, type, TYPE_TAG_NAME(type), 0);
+                }
+                type = TYPE_TARGET_TYPE(type);
+        }
+        req->tcb(EOP_DONE, req, 0, 0, 0, 0);
+}
+
+/*
+ *  General purpose routine for determining datatypes.
+ */
+
+static void
+gdb_get_datatype(struct gnu_request *req)
+{
+        struct type *type;
+        struct type *typedef_type;
+        expression_up expr;
+        struct symbol *sym;
+        struct value *val;
+
+        if (gdb_CRASHDEBUG(2))
+                console("gdb_get_datatype [%s] (a)\n", req->name);
+
+        req->typecode = TYPE_CODE_UNDEF;
+
+        /*
+         *  lookup_symbol() will pick up struct and union names.
+         */
+        sym = lookup_symbol(req->name, 0, STRUCT_DOMAIN, 0).symbol;
+        if (sym) {
+                req->typecode = TYPE_CODE(sym->type);
+                req->length = TYPE_LENGTH(sym->type);
+                if (req->member)
+                        get_member_data(req, sym->type, 0, 1);
+
+                if (TYPE_CODE(sym->type) == TYPE_CODE_ENUM)
+                        walk_enum(sym->type, req);
+
+                return;
+        }
+
+        /*
+         *  Otherwise parse the expression.
+         */
+        if (gdb_CRASHDEBUG(2))
+                console("gdb_get_datatype [%s] (b)\n", req->name);
+
+        expr = parse_expression(req->name);
+
+
+        switch (expr.get()->elts[0].opcode)
+        {
+        case OP_VAR_VALUE:
+                if (gdb_CRASHDEBUG(2))
+                        console("expr->elts[0].opcode: OP_VAR_VALUE\n");
+                type = expr.get()->elts[2].symbol->type;
+                if (req->tcb) {
+                        long value = SYMBOL_VALUE(expr->elts[2].symbol);
+                        /* callback with symbol value */
+                        req->typecode = TYPE_CODE(type);
+                        req->tcb(EOP_VALUE, req, &value, 0, 0, 0);
+                        drillDownType(req, type);
+                } else {
+                        if (req->flags & GNU_VAR_LENGTH_TYPECODE) {
+                                req->typecode = TYPE_CODE(type);
+                                req->length = TYPE_LENGTH(type);
+                        }
+                        if (TYPE_CODE(type) == TYPE_CODE_ENUM) {
+                                req->typecode = TYPE_CODE(type);
+                                req->value = SYMBOL_VALUE(expr->elts[2].symbol);
+                                req->tagname = (char *)TYPE_TAG_NAME(type);
+                                if (!req->tagname) {
+                                        val = evaluate_type(expr.get());
+                                        eval_enum(value_type(val), req);
+                                }
+                        }
+                }
+                break;
+
+          case OP_TYPE:
+                if (gdb_CRASHDEBUG(2))
+                        console("expr->elts[0].opcode: OP_TYPE\n");
+                    type = expr.get()->elts[1].type;
+
+                if (req->tcb) {
+                        drillDownType(req, type);
+                } else {
+                        req->typecode = TYPE_CODE(type);
+                        req->length = TYPE_LENGTH(type);
+                        if (TYPE_CODE(type) == TYPE_CODE_TYPEDEF) {
+                                req->is_typedef = TYPE_CODE_TYPEDEF;
+                                if ((typedef_type = check_typedef(type))) {
+                                        req->typecode = TYPE_CODE(typedef_type);
+                                        req->length = TYPE_LENGTH(typedef_type);
+                                        type = typedef_type;
+                                }
+                        }
+                        if (TYPE_CODE(type) == TYPE_CODE_ENUM)
+                                walk_enum(type, req);
+                }
+
+                if (req->member)
+                        get_member_data(req, type, 0, 1);
+
+                break;
+
+        default:
+                if (gdb_CRASHDEBUG(2))
+                        console("expr.get()->elts[0].opcode: %d (?)\n",
+                                expr.get()->elts[0].opcode);
+                break;
+
+        }
+}
+
+/*
+ *  More robust enum list dump that gdb's, showing the value of each
+ *  identifier, each on its own line.
+ */
+static void
+walk_enum(struct type *type, struct gnu_request *req)
+{
+        int i;
+        int len, print = (req->flags & GNU_PRINT_ENUMERATORS);
+        long long lastval;
+
+        if (print) {
+                if (req->is_typedef)
+                        fprintf_filtered(gdb_stdout, "typedef ");
+                if (TYPE_TAG_NAME(type))
+                        fprintf_filtered(gdb_stdout, "enum %s {\n", TYPE_TAG_NAME (type));
+                else
+                        fprintf_filtered(gdb_stdout, "enum {\n");
+        }
+
+        len = TYPE_NFIELDS (type);
+        for (i = 0; i < len; i++) {
+                if (print)
+                        fprintf_filtered(gdb_stdout, "  %s", TYPE_FIELD_NAME (type, i));
+                lastval = TYPE_FIELD_ENUMVAL (type, i);
+                if (print) {
+                        fprintf_filtered(gdb_stdout, " = %s", plongest(lastval));
+                        fprintf_filtered(gdb_stdout, "\n");
+                } else if (req->tcb)
+                        req->tcb(EOP_ENUMVAL, req, TYPE_FIELD_NAME (type, i), &lastval, 0, 0);
+        }
+        if (print) {
+                if (TYPE_TAG_NAME(type))
+                        fprintf_filtered(gdb_stdout, "};\n");
+                else
+                        fprintf_filtered(gdb_stdout, "} %s;\n", req->name);
+        }
+}
+
+/*
+ *  Given an enum type with no tagname, determine its value.
+ */
+static void
+eval_enum(struct type *type, struct gnu_request *req)
+{
+        int i;
+        int len;
+        long long lastval;
+
+        len = TYPE_NFIELDS (type);
+        lastval = 0;
+
+        for (i = 0; i < len; i++) {
+                if (lastval != TYPE_FIELD_ENUMVAL (type, i))
+                        lastval = TYPE_FIELD_ENUMVAL (type, i);
+
+                if (STREQ(TYPE_FIELD_NAME(type, i), req->name)) {
+                        req->tagname = "(unknown)";
+                        req->value = lastval;
+                        return;
+                }
+                lastval++;
+        }
+}
+
+/*
+ *  Walk through a struct type's list of fields looking for the desired
+ *  member field, and when found, return its relevant data.
+ */
+static void
+get_member_data(struct gnu_request *req, struct type *type, long offset, int is_first)
+{
+        short i;
+        struct field *nextfield;
+        short nfields;
+        struct type *typedef_type, *target_type;
+
+        req->member_offset = -1;
+
+        nfields = TYPE_MAIN_TYPE(type)->nfields;
+        nextfield = TYPE_MAIN_TYPE(type)->flds_bnds.fields;
+
+        if (nfields == 0 && is_first /* The first call */) {
+                struct type *newtype;
+                newtype = lookup_transparent_type(req->name);
+                if (newtype) {
+                        console("get_member_data(%s.%s): switching type from %lx to %lx\n",
+                                req->name, req->member, type, newtype);
+                        nfields = TYPE_MAIN_TYPE(newtype)->nfields;
+                        nextfield = TYPE_MAIN_TYPE(newtype)->flds_bnds.fields;
+                }
+        }
+
+        for (i = 0; i < nfields; i++) {
+                if (*nextfield->name == 0) { /* Anonymous struct/union */
+                        get_member_data(req, nextfield->type(),
+                            offset + nextfield->loc.bitpos, 0);
+                        if (req->member_offset != -1)
+                                return;
+                } else {
+                        /* callback may be just looking for a specific member name */
+                        if (req->tcb) {
+                                if (req->tcb(EOP_MEMBER_NAME, req, nextfield->name, 0, 0, 0)) {
+                                        long bitpos = FIELD_BITPOS(*nextfield);
+                                        long bitsize = FIELD_BITSIZE(*nextfield);
+                                        long len = TYPE_LENGTH(nextfield->type());
+                                        long byteOffset;
+                                        offset += nextfield->loc.bitpos;
+                                        byteOffset = offset/8;
+                                        console("EOP_MEMBER_SIZES\n");
+                                        req->tcb(EOP_MEMBER_SIZES, req, &byteOffset, &len, &bitpos, &bitsize);
+                                        /* callback with full type info */
+                                        drillDownType(req, nextfield->type());
+                                }
+                        } else if (STREQ(req->member, nextfield->name)) {
+                                req->member_offset = offset + nextfield->loc.bitpos;
+                                req->member_length = TYPE_LENGTH(nextfield->type());
+                                req->member_typecode = TYPE_CODE(nextfield->type());
+                                req->member_main_type_name = (char *)TYPE_NAME(nextfield->type());
+                                req->member_main_type_tag_name = (char *)TYPE_TAG_NAME(nextfield->type());
+                                target_type = TYPE_TARGET_TYPE(nextfield->type());
+                                if (target_type) {
+                                        req->member_target_type_name = (char *)TYPE_NAME(target_type);
+                                        req->member_target_type_tag_name = (char *)TYPE_TAG_NAME(target_type);
+                                }
+                                if ((req->member_typecode == TYPE_CODE_TYPEDEF) &&
+                                    (typedef_type = check_typedef(nextfield->type()))) {
+                                        req->member_length = TYPE_LENGTH(typedef_type);
+                                }
+                                return;
+                        }
+                }
+                nextfield++;
+        }
+}
+
+/*
+ *  Check whether a command exists.  If it doesn't, the command will be
+ *  returned indirectly via the error_hook.
+ */
+static void
+gdb_command_exists(struct gnu_request *req)
+{
+        extern struct cmd_list_element *cmdlist;
+
+        req->value = FALSE;
+        lookup_cmd((const char **)&req->name, cmdlist, "", NULL, 0, 1);
+        req->value = TRUE;
+}
+
+static void
+gdb_function_numargs(struct gnu_request *req)
+{
+        struct symbol *sym;
+
+        sym = find_pc_function(req->pc);
+
+        if (!sym || TYPE_CODE(sym->type) != TYPE_CODE_FUNC) {
+                req->flags |= GNU_COMMAND_FAILED;
+                return;
+        }
+
+        req->value = (ulong)TYPE_NFIELDS(sym->type);
+}
+
+struct load_module *gdb_current_load_module = NULL;
+
+static void
+gdb_add_symbol_file(struct gnu_request *req)
+{
+        struct load_module *lm;
+        int i;
+        int allsect = 0;
+        char *secname;
+        char buf[96];
+
+        gdb_current_load_module = lm = (struct load_module *)req->addr;
+
+        req->name = lm->mod_namelist;
+        gdb_delete_symbol_file(req);
+        lm->loaded_objfile = NULL;
+
+        if ((lm->mod_flags & MOD_NOPATCH) == 0) {
+                for (i = 0 ; i < lm->mod_sections; i++) {
+                    if (STREQ(lm->mod_section_data[i].name, ".text") &&
+                        (lm->mod_section_data[i].flags & SEC_FOUND))
+                            allsect = 1;
+                }
+
+                if (!allsect) {
+                    sprintf(req->buf, "add-symbol-file %s 0x%lx %s", lm->mod_namelist,
+                            lm->mod_text_start ? lm->mod_text_start : lm->mod_base,
+                            lm->mod_flags & MOD_DO_READNOW ? "-readnow" : "");
+                    if (lm->mod_data_start) {
+                            sprintf(buf, " -s .data 0x%lx", lm->mod_data_start);
+                            strcat(req->buf, buf);
+                    }
+                    if (lm->mod_bss_start) {
+                            sprintf(buf, " -s .bss 0x%lx", lm->mod_bss_start);
+                            strcat(req->buf, buf);
+                    }
+                    if (lm->mod_rodata_start) {
+                            sprintf(buf, " -s .rodata 0x%lx", lm->mod_rodata_start);
+                            strcat(req->buf, buf);
+                    }
+                } else {
+                    sprintf(req->buf, "add-symbol-file %s 0x%lx %s", lm->mod_namelist,
+                            lm->mod_text_start, lm->mod_flags & MOD_DO_READNOW ?
+                            "-readnow" : "");
+                    for (i = 0; i < lm->mod_sections; i++) {
+                            secname = lm->mod_section_data[i].name;
+                            if ((lm->mod_section_data[i].flags & SEC_FOUND) &&
+                                !STREQ(secname, ".text")) {
+                                    if (lm->mod_section_data[i].addr)
+                                        sprintf(buf, " -s %s 0x%lx", secname, lm->mod_section_data[i].addr);
+                                    else
+                                        sprintf(buf, " -s %s 0x%lx", secname,
+                                            lm->mod_section_data[i].offset + lm->mod_base);
+                                    strcat(req->buf, buf);
+                            }
+                    }
+                }
+        }
+
+        if (gdb_CRASHDEBUG(1))
+            fprintf_filtered(gdb_stdout, "%s\n", req->buf);
+
+               execute_command(req->buf, FALSE);
+
+        for (objfile *objfile : current_program_space->objfiles ()) {
+                if (same_file((char *)objfile_name(objfile), lm->mod_namelist)) {
+                        if (objfile->separate_debug_objfile)
+                                lm->loaded_objfile = objfile->separate_debug_objfile;
+                        else
+                                lm->loaded_objfile = objfile;
+                        break;
+                }
+        }
+
+        if (!lm->loaded_objfile)
+                req->flags |= GNU_COMMAND_FAILED;
+}
+
+static void
+gdb_delete_symbol_file(struct gnu_request *req)
+{
+        for (objfile *objfile : current_program_space->objfiles ()) {
+                if (STREQ(objfile_name(objfile), req->name) ||
+                    same_file((char *)objfile_name(objfile), req->name)) {
+                        objfile->unlink ();
+                        break;
+                }
+        }
+
+        if (gdb_CRASHDEBUG(2)) {
+                fprintf_filtered(gdb_stdout, "current object files:\n");
+                for (objfile *objfile : current_program_space->objfiles ())
+                        fprintf_filtered(gdb_stdout, "  %s\n", objfile_name(objfile));
+        }
+}
+
+/*
+ *  Walk through all minimal_symbols, patching their values with the
+ *  correct addresses.
+ */
+static void
+gdb_patch_symbol_values(struct gnu_request *req)
+{
+        req->name = PATCH_KERNEL_SYMBOLS_START;
+        patch_kernel_symbol(req);
+
+       for (objfile *objfile : current_program_space->objfiles ())
+           for (minimal_symbol *msymbol : objfile->msymbols ())
+        {
+                req->name = (char *)msymbol->m_name;
+                req->addr = (ulong)(&MSYMBOL_VALUE(msymbol));
+                if (!patch_kernel_symbol(req)) {
+                        req->flags |= GNU_COMMAND_FAILED;
+                        break;
+                }
+        }
+
+        req->name = PATCH_KERNEL_SYMBOLS_STOP;
+        patch_kernel_symbol(req);
+
+        clear_symtab_users(0);
+        gdb_merge_flags |= KERNEL_SYMBOLS_PATCHED;
+}
+
+static void
+gdb_get_symbol_type(struct gnu_request *req)
+{
+        expression_up expr;
+        struct value *val;
+        struct type *type;
+        struct type *target_type;
+
+        req->typecode = TYPE_CODE_UNDEF;
+
+        expr = parse_expression (req->name);
+        val = evaluate_type (expr.get());
+
+        type = value_type(val);
+
+        req->type_name = (char *)TYPE_MAIN_TYPE(type)->name;
+        req->typecode = TYPE_MAIN_TYPE(type)->code;
+        req->length = type->length;
+        req->type_tag_name = (char *)TYPE_TAG_NAME(type);
+        target_type = TYPE_MAIN_TYPE(type)->target_type;
+
+        if (target_type) {
+                req->target_typename = (char *)TYPE_MAIN_TYPE(target_type)->name;
+                req->target_typecode = TYPE_MAIN_TYPE(target_type)->code;
+                req->target_length = target_type->length;
+        }
+
+        if (req->member)
+                get_member_data(req, type, 0, 1);
+}
+
+static void
+gdb_debug_command(struct gnu_request *req)
+{
+
+}
+
+/*
+ *  Only necessary on "patched" kernel symbol sessions, and called only by
+ *  lookup_symbol(), pull a symbol value bait-and-switch operation by altering
+ *  either a data symbol's address value or a text symbol's block start address.
+ */
+static void
+gdb_bait_and_switch(char *name, struct symbol *sym)
+{
+        struct bound_minimal_symbol msym;
+        struct block *block;
+
+        if ((gdb_merge_flags & KERNEL_SYMBOLS_PATCHED) &&
+            (msym = lookup_minimal_symbol(name, NULL, gdb_kernel_objfile)).minsym) {
+                if (SYMBOL_CLASS(sym) == LOC_BLOCK) {
+                        block = (struct block *)SYMBOL_BLOCK_VALUE(sym);
+                        BLOCK_START(block) = BMSYMBOL_VALUE_ADDRESS(msym);
+                } else
+                        SET_SYMBOL_VALUE_ADDRESS(sym, BMSYMBOL_VALUE_ADDRESS(msym));
+        }
+}
+
+#include "valprint.h"
+
+void
+get_user_print_option_address(struct gnu_request *req)
+{
+        extern struct value_print_options user_print_options;
+
+        req->addr = 0;
+
+        if (strcmp(req->name, "output_format") == 0)
+                req->addr = (ulong)&user_print_options.output_format;
+        if (strcmp(req->name, "print_max") == 0)
+                req->addr = (ulong)&user_print_options.print_max;
+        if (strcmp(req->name, "prettyprint_structs") == 0)
+                req->addr = (ulong)&user_print_options.prettyformat_structs;
+        if (strcmp(req->name, "prettyprint_arrays") == 0)
+                req->addr = (ulong)&user_print_options.prettyformat_arrays;
+        if (strcmp(req->name, "repeat_count_threshold") == 0)
+                req->addr = (ulong)&user_print_options.repeat_count_threshold;
+        if (strcmp(req->name, "stop_print_at_null") == 0)
+                req->addr = (ulong)&user_print_options.stop_print_at_null;
+        if (strcmp(req->name, "output_radix") == 0)
+                req->addr = (ulong)&output_radix;
+}
+
+CORE_ADDR crash_text_scope;
+
+static void
+gdb_set_crash_block(struct gnu_request *req)
+{
+        if (!req->addr) {  /* debug */
+                crash_text_scope = 0;
+                return;
+        }
+
+        if ((req->addr2 = (ulong)block_for_pc(req->addr)))
+                crash_text_scope = req->addr;
+        else {
+                crash_text_scope = 0;
+                req->flags |= GNU_COMMAND_FAILED;
+        }
+}
+
+static const struct block *
+gdb_get_crash_block(void)
+{
+        if (crash_text_scope)
+                return block_for_pc(crash_text_scope);
+        else
+                return NULL;
+}
+
+static long
+lookup_struct_contents(struct gnu_request *req)
+{
+  int i;
+  long r;
+  struct field *f;
+  struct main_type *m;
+  const char *n;
+  struct main_type *top_m = (struct main_type *)req->addr;
+  char *type_name = req->type_name;
+
+  if (!top_m || !type_name)
+    return 0;
+
+  for (i = 0; i < top_m->nfields; i++)
+    {
+      f = top_m->flds_bnds.fields + i;
+      if (!f->type())
+        continue;
+      m = f->type()->main_type;
+
+      // If the field is an array, check the target type -
+      // it might be structure, or might not be.
+      // - struct request_sock *syn_table[0];
+      //   here m->target_type->main_type->code is expected
+      //   to be TYPE_CODE_PTR
+      // - struct list_head vec[TVN_SIZE];
+      //   here m->target_type->main_type->code should be
+      //   TYPE_CODE_STRUCT
+      if (m->code == TYPE_CODE_ARRAY && m->target_type)
+        m = m->target_type->main_type;
+
+      /* Here is a recursion.
+       * If we have struct variable (not pointer),
+       * scan this inner structure
+       */
+      if (m->code == TYPE_CODE_STRUCT) {
+        req->addr = (ulong)m;
+        r = lookup_struct_contents(req);
+        req->addr = (ulong)top_m;
+        if (r)
+          return 1;
+      }
+
+      if (m->code == TYPE_CODE_PTR && m->target_type)
+        m = m->target_type->main_type;
+      if (m->name)
+        n = m->name;
+      else
+        continue;
+
+      if (strstr(n, type_name))
+        return 1;
+    }
+
+  return 0;
+}
+
+static void
+iterate_datatypes (struct gnu_request *req)
+{
+  for (objfile *objfile : current_program_space->objfiles ())
+    {
+      if (objfile->sf) {
+        objfile->sf->qf->expand_all_symtabs(objfile);
+        objfile->all_symtabs_expanded = true;
+      }
+
+      for (compunit_symtab *cust : objfile->compunits ())
+        {
+          const struct blockvector *bv = COMPUNIT_BLOCKVECTOR (cust);
+
+          for (int i = GLOBAL_BLOCK; i <= STATIC_BLOCK; ++i)
+            {
+              const struct block *b = BLOCKVECTOR_BLOCK (bv, i);
+              struct block_iterator iter;
+              struct symbol *sym;
+
+              ALL_BLOCK_SYMBOLS (b, iter, sym)
+                {
+                  QUIT;
+
+                  if (SYMBOL_CLASS (sym) != LOC_TYPEDEF)
+                    continue;
+
+                  if (req->highest &&
+                    !(req->lowest <= sym->type->length && sym->type->length <= req->highest))
+                        continue;
+
+                  req->addr = (ulong)(sym->type->main_type);
+                  req->name = (char *)(sym->m_name);
+                  req->length = sym->type->length;
+
+                  if (req->member) {
+                    req->value = lookup_struct_contents(req);
+                    if (!req->value)
+                      continue;
+                  }
+                  req->callback(req, req->callback_data);
+                }
+            }
+        }
+    }
+}
+#endif

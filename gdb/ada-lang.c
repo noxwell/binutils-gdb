@@ -997,7 +997,7 @@ ada_fold_name (gdb::string_view name)
   int len = name.size ();
   GROW_VECT (fold_buffer, fold_buffer_size, len + 1);
 
-  if (name[0] == '\'')
+  if (!name.empty () && name[0] == '\'')
     {
       strncpy (fold_buffer, name.data () + 1, len - 2);
       fold_buffer[len - 2] = '\000';
@@ -1006,8 +1006,9 @@ ada_fold_name (gdb::string_view name)
     {
       int i;
 
-      for (i = 0; i <= len; i += 1)
+      for (i = 0; i < len; i += 1)
         fold_buffer[i] = tolower (name[i]);
+      fold_buffer[i] = '\0';
     }
 
   return fold_buffer;
@@ -1157,7 +1158,7 @@ ada_decode (const char *encoded)
         i -= 1;
       if (i > 1 && encoded[i] == '_' && encoded[i - 1] == '_')
         len0 = i - 1;
-      else if (encoded[i] == '$')
+      else if (i >= 0 && encoded[i] == '$')
         len0 = i;
     }
 
@@ -13596,7 +13597,7 @@ ada_lookup_name_info::ada_lookup_name_info (const lookup_name_info &lookup_name)
 {
   gdb::string_view user_name = lookup_name.name ();
 
-  if (user_name[0] == '<')
+  if (!user_name.empty () && user_name[0] == '<')
     {
       if (user_name.back () == '>')
 	m_encoded_name

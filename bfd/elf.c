@@ -4391,7 +4391,7 @@ get_program_header_size (bfd *abfd, struct bfd_link_info *info)
     {
       /* If we have a loadable interpreter section, we need a
 	 PT_INTERP segment.  In this case, assume we also need a
-	 PT_PHDR segment, although that may not be true for all
+	 PT_PHDR segment, although that may not be TRUE for all
 	 targets.  */
       segs += 2;
     }
@@ -9903,6 +9903,30 @@ elfcore_grok_arc_v2 (bfd *abfd, Elf_Internal_Note *note)
   return elfcore_make_note_pseudosection (abfd, ".reg-arc-v2", note);
 }
 
+static bfd_boolean
+elfcore_grok_loongarch_cpucfg (bfd *abfd, Elf_Internal_Note *note)
+{
+  return elfcore_make_note_pseudosection (abfd, ".reg-loongarch-cpucfg", note);
+}
+
+static bfd_boolean
+elfcore_grok_loongarch_lbt (bfd *abfd, Elf_Internal_Note *note)
+{
+  return elfcore_make_note_pseudosection (abfd, ".reg-loongarch-lbt", note);
+}
+
+static bfd_boolean
+elfcore_grok_loongarch_lsx (bfd *abfd, Elf_Internal_Note *note)
+{
+  return elfcore_make_note_pseudosection (abfd, ".reg-loongarch-lsx", note);
+}
+
+static bfd_boolean
+elfcore_grok_loongarch_lasx (bfd *abfd, Elf_Internal_Note *note)
+{
+  return elfcore_make_note_pseudosection (abfd, ".reg-loongarch-lasx", note);
+}
+
 #if defined (HAVE_PRPSINFO_T)
 typedef prpsinfo_t   elfcore_psinfo_t;
 #if defined (HAVE_PRPSINFO32_T)		/* Sparc64 cross Sparc32 */
@@ -10557,6 +10581,34 @@ elfcore_grok_note (bfd *abfd, Elf_Internal_Note *note)
       if (note->namesz == 6
 	  && strcmp (note->namedata, "LINUX") == 0)
 	return elfcore_grok_aarch_pauth (abfd, note);
+      else
+	return TRUE;
+
+    case NT_LARCH_CPUCFG:
+      if (note->namesz == 6
+	  && strcmp (note->namedata, "LINUX") == 0)
+	return elfcore_grok_loongarch_cpucfg (abfd, note);
+      else
+	return TRUE;
+
+    case NT_LARCH_LBT:
+      if (note->namesz == 6
+	  && strcmp (note->namedata, "LINUX") == 0)
+	return elfcore_grok_loongarch_lbt (abfd, note);
+      else
+	return TRUE;
+
+    case NT_LARCH_LSX:
+      if (note->namesz == 6
+	  && strcmp (note->namedata, "LINUX") == 0)
+	return elfcore_grok_loongarch_lsx (abfd, note);
+      else
+	return TRUE;
+
+    case NT_LARCH_LASX:
+      if (note->namesz == 6
+	  && strcmp (note->namedata, "LINUX") == 0)
+	return elfcore_grok_loongarch_lasx (abfd, note);
       else
 	return TRUE;
 
@@ -11942,6 +11994,55 @@ elfcore_write_arc_v2 (bfd *abfd,
 }
 
 char *
+elfcore_write_loongarch_cpucfg (bfd *abfd,
+				char *buf,
+				int *bufsiz,
+				const void *loongarch_cpucfg,
+				int size)
+{
+  char *note_name = "LINUX";
+  return elfcore_write_note (abfd, buf, bufsiz,
+			     note_name, NT_LARCH_CPUCFG,
+			     loongarch_cpucfg, size);
+}
+
+char *
+elfcore_write_loongarch_lbt (bfd *abfd,
+			     char *buf,
+			     int *bufsiz,
+			     const void *loongarch_lbt,
+			     int size)
+{
+  char *note_name = "LINUX";
+  return elfcore_write_note (abfd, buf, bufsiz,
+			     note_name, NT_LARCH_LBT, loongarch_lbt, size);
+}
+
+char *
+elfcore_write_loongarch_lsx (bfd *abfd,
+			     char *buf,
+			     int *bufsiz,
+			     const void *loongarch_lsx,
+			     int size)
+{
+  char *note_name = "LINUX";
+  return elfcore_write_note (abfd, buf, bufsiz,
+			     note_name, NT_LARCH_LSX, loongarch_lsx, size);
+}
+
+char *
+elfcore_write_loongarch_lasx (bfd *abfd,
+			      char *buf,
+			      int *bufsiz,
+			      const void *loongarch_lasx,
+			      int size)
+{
+  char *note_name = "LINUX";
+  return elfcore_write_note (abfd, buf, bufsiz,
+			     note_name, NT_LARCH_LASX, loongarch_lasx, size);
+}
+
+char *
 elfcore_write_register_note (bfd *abfd,
 			     char *buf,
 			     int *bufsiz,
@@ -12025,6 +12126,15 @@ elfcore_write_register_note (bfd *abfd,
     return elfcore_write_aarch_pauth (abfd, buf, bufsiz, data, size);
   if (strcmp (section, ".reg-arc-v2") == 0)
     return elfcore_write_arc_v2 (abfd, buf, bufsiz, data, size);
+  if (strcmp (section, ".reg-loongarch-cpucfg") == 0)
+    return elfcore_write_loongarch_cpucfg (abfd, buf, bufsiz, data, size);
+  if (strcmp (section, ".reg-loongarch-lbt") == 0)
+    return elfcore_write_loongarch_lbt (abfd, buf, bufsiz, data, size);
+  if (strcmp (section, ".reg-loongarch-lsx") == 0)
+    return elfcore_write_loongarch_lsx (abfd, buf, bufsiz, data, size);
+  if (strcmp (section, ".reg-loongarch-lasx") == 0)
+    return elfcore_write_loongarch_lasx (abfd, buf, bufsiz, data, size);
+
   return NULL;
 }
 
@@ -12491,7 +12601,7 @@ _bfd_elf_final_write_processing (bfd *abfd)
 
 /* Return TRUE for ELF symbol types that represent functions.
    This is the default version of this function, which is sufficient for
-   most targets.  It returns true if TYPE is STT_FUNC or STT_GNU_IFUNC.  */
+   most targets.  It returns TRUE if TYPE is STT_FUNC or STT_GNU_IFUNC.  */
 
 bfd_boolean
 _bfd_elf_is_function_type (unsigned int type)

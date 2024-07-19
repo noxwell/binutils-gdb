@@ -303,6 +303,7 @@ extern void print_arm_disassembler_options (FILE *);
 extern void print_arc_disassembler_options (FILE *);
 extern void print_s390_disassembler_options (FILE *);
 extern void print_wasm32_disassembler_options (FILE *);
+extern void print_loongarch_disassembler_options (FILE *);
 extern bfd_boolean aarch64_symbol_is_valid (asymbol *, struct disassemble_info *);
 extern bfd_boolean arm_symbol_is_valid (asymbol *, struct disassemble_info *);
 extern bfd_boolean csky_symbol_is_valid (asymbol *, struct disassemble_info *);

@@ -395,7 +395,7 @@ extern int rl_crlf PARAMS((void));
 #if defined (USE_VARARGS) && defined (PREFER_STDARG)
 extern int rl_message (const char *, ...)  __attribute__((__format__ (printf, 1, 2)));
 #else
-extern int rl_message ();
+extern int rl_message (void);
 #endif
 
 extern int rl_show_char PARAMS((int));

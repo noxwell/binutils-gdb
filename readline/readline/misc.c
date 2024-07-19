@@ -403,7 +403,7 @@ _rl_history_set_point (void)
 
 #if defined (VI_MODE)
   if (rl_editing_mode == vi_mode && _rl_keymap != vi_insertion_keymap)
-    rl_point = 0;
+    rl_point = rl_end;
 #endif /* VI_MODE */
 
   if (rl_editing_mode == emacs_mode)

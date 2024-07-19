@@ -392,6 +392,14 @@ start_event_loop ()
   return;
 }
 
+#ifdef CRASH_MERGE
+extern "C" void update_gdb_hooks(void);
+extern "C" void main_loop(void);
+extern "C" unsigned long crash_get_kaslr_offset(void);
+extern "C" int console(const char *, ...);
+void crash_target_init (void);
+#endif
+
 /* Call command_loop.  */
 
 /* Prevent inlining this function for the benefit of GDB's selftests
@@ -925,7 +933,11 @@ captured_main_1 (struct captured_main_args *context)
       }
   }
 
+#ifdef CRASH_MERGE
+  save_original_signals_state (1);
+#else
   save_original_signals_state (quiet);
+#endif
 
   /* Try to set up an alternate signal stack for SIGSEGV handlers.  */
   gdb::alternate_signal_stack signal_stack;
@@ -999,7 +1011,7 @@ captured_main_1 (struct captured_main_args *context)
     {
       print_gdb_version (gdb_stdout, false);
       wrap_here ("");
-      printf_filtered ("\n");
+      printf_filtered ("\n\n");
       exit (0);
     }
 
@@ -1038,6 +1050,10 @@ captured_main_1 (struct captured_main_args *context)
      look at things by now.  Initialize the default interpreter.  */
   set_top_level_interpreter (interpreter_p);
 
+#ifdef CRASH_MERGE
+  update_gdb_hooks();
+#endif
+
   /* FIXME: cagney/2003-02-03: The big hack (part 2 of 2) that lets
      GDB retain the old MI1 interpreter startup behavior.  Output the
      copyright message after the interpreter is installed when it is
@@ -1066,7 +1082,11 @@ captured_main_1 (struct captured_main_args *context)
   if (!system_gdbinit.empty () && !inhibit_gdbinit)
     {
       for (const std::string &file : system_gdbinit)
+#ifdef CRASH_MERGE
+        ret = catch_command_errors (source_script, file.c_str (), -1);
+#else
 	ret = catch_command_errors (source_script, file.c_str (), 0);
+#endif
     }
 
   /* Read and execute $HOME/.gdbinit file, if it exists.  This is done
@@ -1075,7 +1095,11 @@ captured_main_1 (struct captured_main_args *context)
      debugging or what directory you are in.  */
 
   if (!home_gdbinit.empty () && !inhibit_gdbinit && !inhibit_home_gdbinit)
+#ifdef CRASH_MERGE
+    ret = catch_command_errors (source_script, home_gdbinit.c_str (), -1);
+#else
     ret = catch_command_errors (source_script, home_gdbinit.c_str (), 0);
+#endif
 
   /* Process '-ix' and '-iex' options early.  */
   for (i = 0; i < cmdarg_vec.size (); i++)
@@ -1121,7 +1145,11 @@ captured_main_1 (struct captured_main_args *context)
 				  !batch_flag);
       if (ret != 0)
 	ret = catch_command_errors (symbol_file_add_main_adapter,
+#ifdef CRASH_MERGE
+                                    symarg, 0);
+#else
 				    symarg, !batch_flag);
+#endif
     }
   else
     {
@@ -1191,7 +1219,11 @@ captured_main_1 (struct captured_main_args *context)
 	{
 	  auto_load_local_gdbinit_loaded = 1;
 
+#ifdef CRASH_MERGE
+          ret = catch_command_errors (source_script, local_gdbinit.c_str (), -1);
+#else
 	  ret = catch_command_errors (source_script, local_gdbinit.c_str (), 0);
+#endif
 	}
     }
 
@@ -1242,6 +1274,16 @@ captured_main (void *data)
 
   captured_main_1 (context);
 
+#ifdef CRASH_MERGE
+  /* Relocate the vmlinux. */
+  objfile_rebase (symfile_objfile, crash_get_kaslr_offset());
+
+  crash_target_init();
+
+  /* Back to crash.  */
+  main_loop();
+#endif
+
   /* NOTE: cagney/1999-11-07: There is probably no reason for not
      moving this loop and the code found in captured_command_loop()
      into the command_loop() proper.  The main thing holding back that
@@ -1256,6 +1298,9 @@ captured_main (void *data)
 	{
 	  exception_print (gdb_stderr, ex);
 	}
+#ifdef CRASH_MERGE
+        console("<CAPTURED_MAIN WHILE LOOP>\n");
+#endif
     }
   /* No exit -- exit is through quit_command.  */
 }
@@ -1277,6 +1322,22 @@ gdb_main (struct captured_main_args *args)
   return 1;
 }
 
+#ifdef CRASH_MERGE
+/*
+ *  NOTE: adapted from gdb.c, which is no longer built in; changed name of
+ *        original main() to gdb_main_entry() for use as crash entry point
+ */
+int
+gdb_main_entry (int argc, char **argv)
+{
+  struct captured_main_args args;
+  memset (&args, 0, sizeof args);
+  args.argc = argc;
+  args.argv = argv;
+  args.interpreter_p = INTERP_CONSOLE;
+  return gdb_main (&args);
+}
+#endif
 
 /* Don't use *_filtered for printing help.  We don't want to prompt
    for continue no matter how small the screen or how much we're going

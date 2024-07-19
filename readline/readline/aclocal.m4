@@ -10,6 +10,7 @@ AC_DEFUN(BASH_C_LONG_LONG,
   ac_cv_c_long_long=yes
 else
 AC_TRY_RUN([
+#include <stdlib.h>
 int
 main()
 {
@@ -33,6 +34,7 @@ AC_DEFUN(BASH_C_LONG_DOUBLE,
   ac_cv_c_long_double=yes
 else
 AC_TRY_RUN([
+#include <stdlib.h>
 int
 main()
 {
@@ -134,6 +136,8 @@ typedef int (*_bashfunc)(const char *, ...);
 #else
 typedef int (*_bashfunc)();
 #endif
+#include <stdlib.h>
+int
 main()
 {
 _bashfunc pf;
@@ -191,9 +195,11 @@ AC_CACHE_VAL(bash_cv_under_sys_siglist,
 #ifdef HAVE_UNISTD_H
 #include <unistd.h>
 #endif
+#include <stdlib.h>
 #ifndef UNDER_SYS_SIGLIST_DECLARED
 extern char *_sys_siglist[];
 #endif
+int
 main()
 {
 char *msg = (char *)_sys_siglist[2];
@@ -218,9 +224,11 @@ AC_CACHE_VAL(bash_cv_sys_siglist,
 #ifdef HAVE_UNISTD_H
 #include <unistd.h>
 #endif
+#include <stdlib.h>
 #if !HAVE_DECL_SYS_SIGLIST
 extern char *sys_siglist[];
 #endif
+int
 main()
 {
 char *msg = sys_siglist[2];
@@ -273,6 +281,8 @@ AC_CACHE_VAL(bash_cv_dup2_broken,
 [AC_TRY_RUN([
 #include <sys/types.h>
 #include <fcntl.h>
+#include <stdlib.h>
+int
 main()
 {
   int fd1, fd2, fl;
@@ -335,6 +345,8 @@ AC_CACHE_VAL(bash_cv_opendir_not_robust,
 #  include <ndir.h>
 # endif
 #endif /* HAVE_DIRENT_H */
+#include <stdlib.h>
+int
 main()
 {
 DIR *dir;
@@ -514,6 +526,8 @@ AC_TRY_RUN([
 #include <sys/types.h>
 #include <sys/time.h>
 #include <sys/resource.h>
+#include <stdlib.h>
+int
 main()
 {
 #ifdef HAVE_QUAD_T
@@ -583,6 +597,7 @@ AC_CACHE_VAL(bash_cv_getenv_redef,
 #ifdef HAVE_UNISTD_H
 #  include <unistd.h>
 #endif
+#include <stdlib.h>
 #ifndef __STDC__
 #  ifndef const
 #    define const
@@ -598,6 +613,7 @@ getenv (name)
 {
 return "42";
 }
+int
 main()
 {
 char *s;
@@ -786,7 +802,9 @@ AC_CACHE_VAL(bash_cv_func_sigsetjmp,
 #include <sys/types.h>
 #include <signal.h>
 #include <setjmp.h>
+#include <stdlib.h>
 
+int
 main()
 {
 #if !defined (_POSIX_VERSION) || !defined (HAVE_POSIX_SIGNALS)
@@ -835,7 +853,10 @@ AC_CACHE_VAL(bash_cv_func_strcoll_broken,
 #if defined (HAVE_LOCALE_H)
 #include <locale.h>
 #endif
+#include <string.h>
+#include <stdlib.h>
 
+int
 main(c, v)
 int     c;
 char    *v[];
@@ -881,6 +902,7 @@ AC_CACHE_VAL(bash_cv_printf_a_format,
 [AC_TRY_RUN([
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 
 int
 main()
@@ -1241,6 +1263,8 @@ AC_CACHE_VAL(bash_cv_pgrp_pipe,
 #ifdef HAVE_UNISTD_H
 #  include <unistd.h>
 #endif
+#include <stdlib.h>
+int
 main()
 {
 # ifdef GETPGRP_VOID
@@ -1305,6 +1329,7 @@ AC_CACHE_VAL(bash_cv_must_reinstall_sighandlers,
 #ifdef HAVE_UNISTD_H
 #include <unistd.h>
 #endif
+#include <stdlib.h>
 
 typedef RETSIGTYPE sigfunc();
 
@@ -1335,6 +1360,7 @@ int s;
   nsigint++;
 }
 
+int
 main()
 {
 	nsigint = 0;
@@ -1418,8 +1444,11 @@ AC_CACHE_VAL(bash_cv_sys_named_pipes,
 #ifdef HAVE_UNISTD_H
 #include <unistd.h>
 #endif
+#include <stdio.h>
+#include <stdlib.h>
 
 /* Add more tests in here as appropriate. */
+int
 main()
 {
 int fd, err;
@@ -1651,11 +1680,13 @@ AC_CACHE_VAL(bash_cv_unusable_rtsigs,
 [AC_TRY_RUN([
 #include <sys/types.h>
 #include <signal.h>
+#include <stdlib.h>
 
 #ifndef NSIG
 #  define NSIG 64
 #endif
 
+int
 main ()
 {
   int n_sigs = 2 * NSIG;
@@ -1770,6 +1801,7 @@ bash_cv_wcwidth_broken,
 #include <locale.h>
 #include <wchar.h>
 
+int
 main(c, v)
 int     c;
 char    **v;
@@ -1834,9 +1866,11 @@ AC_CACHE_VAL(ac_cv_rl_version,
 [AC_TRY_RUN([
 #include <stdio.h>
 #include <readline/readline.h>
+#include <stdlib.h>
 
 extern int rl_gnu_readline_p;
 
+int
 main()
 {
 	FILE *fp;
@@ -1926,7 +1960,9 @@ AC_CACHE_VAL(bash_cv_func_ctype_nonascii,
 #endif
 #include <stdio.h>
 #include <ctype.h>
+#include <stdlib.h>
 
+int
 main(c, v)
 int	c;
 char	*v[];
@@ -4068,7 +4104,9 @@ AC_DEFUN([BASH_FUNC_SNPRINTF],
     AC_CACHE_CHECK([for standard-conformant snprintf], [bash_cv_func_snprintf],
       [AC_TRY_RUN([
 #include <stdio.h>
+#include <stdlib.h>
 
+int
 main()
 {
   int n;
@@ -4154,6 +4192,7 @@ AC_CACHE_VAL(bash_cv_wexitstatus_offset,
 
 #include <sys/wait.h>
 
+int
 main(c, v)
      int c;
      char **v;

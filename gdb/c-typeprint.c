@@ -1202,6 +1202,9 @@ c_type_print_base_struct_union (struct type *type, struct ui_file *stream,
 		= podata->end_bitpos
 		  - TYPE_LENGTH (type->field (i).type ()) * TARGET_CHAR_BIT;
 	    }
+	  else if (strlen(TYPE_FIELD_NAME (type, i)) == 0)
+	    /* crash: Print details for unnamed struct and union. */
+	    newshow = show;
 
 	  c_print_type_1 (type->field (i).type (),
 			  TYPE_FIELD_NAME (type, i),

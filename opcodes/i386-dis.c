@@ -9778,6 +9778,10 @@ print_insn (bfd_vma pc, disassemble_info *info)
       threebyte = *codep;
       dp = &dis386_twobyte[threebyte];
       need_modrm = twobyte_has_modrm[*codep];
+      if (dp->name && ((strcmp(dp->name, "ud2a") == 0) || (strcmp(dp->name, "ud2") == 0))) {
+        extern int kernel_BUG_encoding_bytes(void);
+        codep += kernel_BUG_encoding_bytes();
+      }
       codep++;
     }
   else

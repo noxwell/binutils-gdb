@@ -487,10 +487,13 @@ _rl_trace (va_alist)
 
   if (_rl_tracefp == 0)
     _rl_tropen ();
+  if (!_rl_tracefp)
+    goto out;
   vfprintf (_rl_tracefp, format, args);
   fprintf (_rl_tracefp, "\n");
   fflush (_rl_tracefp);
 
+out:
   va_end (args);
 }
 
@@ -513,16 +516,17 @@ _rl_tropen (void)
   sprintf (fnbuf, "/var/tmp/rltrace.%ld", (long) getpid ());
 #endif
   unlink (fnbuf);
-  _rl_tracefp = fopen (fnbuf, "w+");
+  _rl_tracefp = fopen (fnbuf, "w+xe");
   return _rl_tracefp != 0;
 }
 
 int
 _rl_trclose (void)
 {
-  int r;
+  int r = 0;
 
-  r = fclose (_rl_tracefp);
+  if (_rl_tracefp)
+    r = fclose (_rl_tracefp);
   _rl_tracefp = 0;
   return r;
 }

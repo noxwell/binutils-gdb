@@ -283,6 +283,9 @@ find_pc_sect_psymtab_closer (struct objfile *objfile,
   return best_pst;
 }
 
+#ifdef CRASH_MERGE
+  extern "C" int gdb_line_number_callback(unsigned long, unsigned long, unsigned long);
+#endif
 /* Find which partial symtab contains PC and SECTION.  Return NULL if
    none.  We return the psymtab that contains a symbol whose address
    exactly matches PC, or, if we cannot find an exact match, the
@@ -363,7 +366,12 @@ find_pc_sect_psymtab (struct objfile *objfile, CORE_ADDR pc,
 
 	best_pst = find_pc_sect_psymtab_closer (objfile, pc, section, pst,
 						msymbol);
+#ifdef CRASH_MERGE
+        if ((best_pst != NULL) &&
+          gdb_line_number_callback(pc, pst->text_low (objfile), pst->text_high (objfile)))
+#else
 	if (best_pst != NULL)
+#endif
 	  return best_pst;
       }
 

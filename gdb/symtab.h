@@ -1110,7 +1110,7 @@ struct symbol : public general_symbol_info, public allocate_on_obstack
       is_objfile_owned (1),
       is_argument (0),
       is_inlined (0),
-      maybe_copied (0),
+      maybe_copied (1), /* The objfile potentially supports copy relocations. */
       subclass (SYMBOL_NONE)
     {
       /* We can't use an initializer list for members of a base class, and
