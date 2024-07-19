@@ -36,7 +36,11 @@
 static void
 syscall_warn_user (void)
 {
+#ifdef CRASH_MERGE
+  static int have_warned = 1;
+#else
   static int have_warned = 0;
+#endif
   if (!have_warned)
     {
       have_warned = 1;

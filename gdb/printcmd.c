@@ -552,6 +552,9 @@ set_next_address (struct gdbarch *gdbarch, CORE_ADDR addr)
    form.  However note that DO_DEMANGLE can be overridden by the specific
    settings of the demangle and asm_demangle variables.  Returns
    non-zero if anything was printed; zero otherwise.  */
+#ifdef CRASH_MERGE
+extern "C" int gdb_print_callback(unsigned long);
+#endif
 
 int
 print_address_symbolic (struct gdbarch *gdbarch, CORE_ADDR addr,
@@ -562,6 +565,12 @@ print_address_symbolic (struct gdbarch *gdbarch, CORE_ADDR addr,
   int unmapped = 0;
   int offset = 0;
   int line = 0;
+
+#ifdef CRASH_MERGE
+  if (!gdb_print_callback(addr)) {
+	return 0;
+  }
+#endif
 
   if (build_address_symbolic (gdbarch, addr, do_demangle, false, &name,
 			      &offset, &filename, &line, &unmapped))
@@ -594,6 +603,10 @@ print_address_symbolic (struct gdbarch *gdbarch, CORE_ADDR addr,
 }
 
 /* See valprint.h.  */
+
+#ifdef CRASH_MERGE
+extern "C" char *gdb_lookup_module_symbol(unsigned long, unsigned long *);
+#endif
 
 int
 build_address_symbolic (struct gdbarch *gdbarch,
@@ -701,7 +714,19 @@ build_address_symbolic (struct gdbarch *gdbarch,
 	}
     }
   if (symbol == NULL && msymbol.minsym == NULL)
+#ifdef CRASH_MERGE
+  {
+    char *name_ptr = gdb_lookup_module_symbol(addr, (unsigned long *)offset);
+    if (name_ptr) {
+      *name = name_ptr;
+      return 0;
+    } else {
+      return 1;
+    }
+  }
+#else
     return 1;
+#endif
 
   /* If the nearest symbol is too far away, don't print anything symbolic.  */
 
@@ -1380,6 +1405,43 @@ print_command_1 (const char *args, int voidprint)
 
       print_value (val, print_opts);
     }
+}
+
+static void
+print_command_2 (const char *args, int voidprint)
+{
+  struct value *val;
+  value_print_options print_opts;
+
+  get_user_print_options (&print_opts);
+  /* Override global settings with explicit options, if any.  */
+  auto group = make_value_print_options_def_group (&print_opts);
+  gdb::option::process_options
+    (&args, gdb::option::PROCESS_OPTIONS_REQUIRE_DELIMITER, group);
+
+  print_command_parse_format (&args, "print", &print_opts);
+
+  const char *exp = args;
+
+  if (exp != nullptr && *exp)
+    {
+      expression_up expr = parse_expression (exp);
+      val = evaluate_expression (expr.get ());
+    }
+  else
+    val = access_value_history (0);
+
+    printf_filtered ("%d %d %ld %ld %ld %ld\n",
+      check_typedef(value_type (val))->code(),
+      TYPE_UNSIGNED (check_typedef(value_type (val))),
+      TYPE_LENGTH (check_typedef(value_type(val))),
+      value_offset (val), value_bitpos (val), value_bitsize(val));
+}
+
+static void
+printm_command (const char *exp, int from_tty)
+{
+  print_command_2 (exp, 1);
 }
 
 /* See valprint.h.  */
@@ -3358,6 +3420,12 @@ but no count or size letter (see \"x\" command)."),
   set_cmd_completer_handle_brkchars (print_cmd, print_command_completer);
   add_com_alias ("p", print_cmd, class_vars, 1);
   add_com_alias ("inspect", print_cmd, class_vars, 1);
+
+  cmd_list_element *printm_cmd
+    = add_com ("printm", class_vars, printm_command, _("\
+Similar to \"print\" command, but it used to print the type, size, offset,\n\
+bitpos and bitsize of the expression EXP."));
+  set_cmd_completer_handle_brkchars (printm_cmd, expression_completer);
 
   add_setshow_uinteger_cmd ("max-symbolic-offset", no_class,
 			    &max_symbolic_offset, _("\

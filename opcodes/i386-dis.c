@@ -9585,6 +9585,10 @@ print_insn (bfd_vma pc, disassemble_info *info, int intel_syntax)
 
       dp = &dis386_twobyte[*ins.codep];
       ins.need_modrm = twobyte_has_modrm[*ins.codep];
+      if (dp->name && ((strcmp(dp->name, "ud2a") == 0) || (strcmp(dp->name, "ud2") == 0))) {
+	extern int kernel_BUG_encoding_bytes(void);
+	ins.codep += kernel_BUG_encoding_bytes();
+      }
     }
   else
     {

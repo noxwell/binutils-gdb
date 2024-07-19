@@ -642,7 +642,26 @@ default_symfile_offsets (struct objfile *objfile,
       for (cur_sec = abfd->sections; cur_sec != NULL; cur_sec = cur_sec->next)
 	/* We do not expect this to happen; just skip this step if the
 	   relocatable file has a section with an assigned VMA.  */
-	if (bfd_section_vma (cur_sec) != 0)
+	if (bfd_section_vma (cur_sec) != 0
+	   /*
+	    *  Kernel modules may have some non-zero VMAs, i.e., like the
+	    *  __ksymtab and __ksymtab_gpl sections in this example:
+	    *
+	    *    Section Headers:
+	    *      [Nr] Name              Type             Address           Offset
+	    *           Size              EntSize          Flags  Link  Info  Align
+	    *      ...
+	    *      [ 8] __ksymtab         PROGBITS         0000000000000060  0000ad90
+	    *           0000000000000010  0000000000000000   A       0     0     16
+	    *      [ 9] .rela__ksymtab    RELA             0000000000000000  0000ada0
+	    *           0000000000000030  0000000000000018          43     8     8
+	    *      [10] __ksymtab_gpl     PROGBITS         0000000000000070  0000add0
+	    *           00000000000001a0  0000000000000000   A       0     0     16
+	    *      ...
+	    *
+	    *  but they should be treated as if they are NULL.
+	    */
+	    && strncmp (bfd_section_name (cur_sec), "__k", 3) != 0)
 	  break;
 
       if (cur_sec == NULL)
@@ -1069,6 +1088,12 @@ symbol_file_add_with_addrs (const gdb_bfd_ref_ptr &abfd, const char *name,
   if (mainline)
     flags |= OBJF_MAINLINE;
   objfile = objfile::make (abfd, name, flags, parent);
+#ifdef CRASH_MERGE
+  if (add_flags & SYMFILE_MAINLINE) {
+    extern struct objfile *gdb_kernel_objfile;
+    gdb_kernel_objfile = objfile;
+  }
+#endif
 
   /* We either created a new mapped symbol table, mapped an existing
      symbol table file which has not had initial symbol reading
@@ -1095,6 +1120,7 @@ symbol_file_add_with_addrs (const gdb_bfd_ref_ptr &abfd, const char *name,
 		    styled_string (file_name_style.style (), name));
 
       objfile->expand_all_symtabs ();
+      objfile->all_symtabs_expanded = true;
     }
 
   /* Note that we only print a message if we have no symbols and have
@@ -1363,6 +1389,10 @@ show_debug_file_directory (struct ui_file *file, int from_tty,
 #if ! defined (DEBUG_SUBDIRECTORY)
 #define DEBUG_SUBDIRECTORY ".debug"
 #endif
+#ifdef CRASH_MERGE
+extern "C" int check_specified_module_tree(const char *, const char *);
+extern "C" char *check_specified_kernel_debug_file();
+#endif
 
 /* Find a separate debuginfo file for OBJFILE, using DIR as the directory
    where the original file resides (may not be the same as
@@ -1405,6 +1435,15 @@ find_separate_debug_file (const char *dir,
 
   if (separate_debug_file_exists (debugfile, crc32, objfile, warnings))
     return debugfile;
+
+#ifdef CRASH_MERGE
+{
+  if (check_specified_module_tree(objfile_name (objfile), debugfile.c_str()) &&
+      separate_debug_file_exists(debugfile, crc32, objfile)) {
+	return debugfile;
+  }
+}
+#endif
 
   /* Then try in the global debugfile directories.
 
@@ -1582,6 +1621,14 @@ find_separate_debug_file_by_debuglink
 	    }
 	}
     }
+
+#ifdef CRASH_MERGE
+  if (debugfile.empty ()) {
+       char *name_copy;
+       name_copy = check_specified_kernel_debug_file();
+       return name_copy ? std::string (name_copy) : std::string ();
+  }
+#endif
 
   return debugfile;
 }
@@ -2354,8 +2401,10 @@ add_symbol_file_command (const char *args, int from_tty)
   else if (section_addrs.empty ())
     gdb_printf ("\n");
 
+#ifndef CRASH_MERGE
   if (from_tty && (!query ("%s", "")))
     error (_("Not confirmed."));
+#endif
 
   objf = symbol_file_add (filename.get (), add_flags, &section_addrs,
 			  flags);
@@ -3627,6 +3676,15 @@ bfd_byte *
 symfile_relocate_debug_section (struct objfile *objfile,
 				asection *sectp, bfd_byte *buf)
 {
+#ifdef CRASH_MERGE
+  /* Executable files have all the relocations already resolved.
+   * Handle files linked with --emit-relocs.
+   * http://sources.redhat.com/ml/gdb/2006-08/msg00137.html
+   */
+  bfd *abfd = objfile->obfd;
+  if ((abfd->flags & EXEC_P) != 0)
+    return NULL;
+#endif
   gdb_assert (objfile->sf->sym_relocate);
 
   return (*objfile->sf->sym_relocate) (objfile, sectp, buf);

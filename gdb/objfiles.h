@@ -875,6 +875,8 @@ public:
      mechanism as ELF should set this flag too.  This flag is used in
      conjunction with the minimal_symbol::maybe_copied method.  */
   bool object_format_has_copy_relocs = false;
+
+  bool all_symtabs_expanded = false;
 };
 
 /* A deleter for objfile.  */
@@ -922,9 +924,9 @@ extern int objfile_has_full_symbols (struct objfile *objfile);
 
 extern int objfile_has_symbols (struct objfile *objfile);
 
-extern int have_partial_symbols (void);
+extern "C" int have_partial_symbols (void);
 
-extern int have_full_symbols (void);
+extern "C" int have_full_symbols (void);
 
 extern void objfile_set_sym_fns (struct objfile *objfile,
 				 const struct sym_fns *sf);

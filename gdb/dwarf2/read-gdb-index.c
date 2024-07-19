@@ -350,7 +350,11 @@ read_gdb_index_from_buffer (const char *filename,
      indices.  */
   if (version < 4)
     {
+#ifdef CRASH_MERGE
+      static int warning_printed = 1;
+#else
       static int warning_printed = 0;
+#endif
       if (!warning_printed)
 	{
 	  warning (_("Skipping obsolete .gdb_index section in %s."),
@@ -369,7 +373,11 @@ read_gdb_index_from_buffer (const char *filename,
      "set use-deprecated-index-sections on".  */
   if (version < 6 && !deprecated_ok)
     {
+#ifdef CRASH_MERGE
+      static int warning_printed = 1;
+#else
       static int warning_printed = 0;
+#endif
       if (!warning_printed)
 	{
 	  warning (_("\

@@ -1253,7 +1253,7 @@ struct symbol : public general_symbol_info, public allocate_on_obstack<symbol>
       m_is_objfile_owned (1),
       m_is_argument (0),
       m_is_inlined (0),
-      maybe_copied (0),
+      maybe_copied (1), /* The objfile potentially supports copy relocations. */
       subclass (SYMBOL_NONE),
       m_artificial (false)
     {
