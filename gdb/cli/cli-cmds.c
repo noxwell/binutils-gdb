@@ -452,6 +452,11 @@ complete_command (const char *arg, int from_tty)
     }
 }
 
+#ifdef CRASH_MERGE
+static int crash_from_tty = 0;
+extern "C" void untrusted_file(FILE *, char *);
+#endif
+
 int
 is_complete_command (struct cmd_list_element *c)
 {
@@ -684,8 +689,32 @@ find_and_open_script (const char *script_file, int search_path)
       close (fd);
       errno = save_errno;
     }
-  else
-    opened.emplace (gdb_file_up (result), std::move (full_path));
+#ifdef CRASH_MERGE
+  /*
+   * Only allow trusted versions of .gdbinit files to be
+   * sourced during session initialization.
+   */
+  if (crash_from_tty == -1)
+    {
+      struct stat statbuf;
+      FILE *stream = result;
+      int _fd = fileno (stream);
+      if (fstat (_fd, &statbuf) < 0)
+	{
+	  perror_with_name (full_path.get());
+	  fclose (stream);
+	  return opened;
+	}
+      if (statbuf.st_uid != getuid () || (statbuf.st_mode & S_IWOTH))
+	{
+	  untrusted_file(NULL, full_path.get());
+	  fclose (stream);
+	  return opened;
+	}
+    }
+#endif
+  opened.emplace (gdb_file_up (result), std::move (full_path));
+
 
   return opened;
 }
@@ -749,7 +778,11 @@ source_script_with_search (const char *file, int from_tty, int search_path)
 	 If the source command was invoked interactively, throw an
 	 error.  Otherwise (e.g. if it was invoked by a script),
 	 just emit a warning, rather than cause an error.  */
+#ifdef CRASH_MERGE
+      if (from_tty > 0)
+#else
       if (from_tty)
+#endif
 	perror_with_name (file);
       else
 	{
@@ -781,7 +814,14 @@ source_script_with_search (const char *file, int from_tty, int search_path)
 void
 source_script (const char *file, int from_tty)
 {
+#ifdef CRASH_MERGE
+  crash_from_tty = from_tty;
+#endif
   source_script_with_search (file, from_tty, 0);
+#ifdef CRASH_MERGE
+  crash_from_tty = 0;
+#endif
+
 }
 
 static void

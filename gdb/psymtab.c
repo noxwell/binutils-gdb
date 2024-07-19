@@ -160,6 +160,9 @@ find_pc_sect_psymtab_closer (struct objfile *objfile,
   return best_pst;
 }
 
+#ifdef CRASH_MERGE
+  extern "C" int gdb_line_number_callback(unsigned long, unsigned long, unsigned long);
+#endif
 /* See psymtab.h.  */
 
 struct partial_symtab *
@@ -175,7 +178,12 @@ psymbol_functions::find_pc_sect_psymtab (struct objfile *objfile,
 
 	best_pst = find_pc_sect_psymtab_closer (objfile, pc, section, pst,
 						msymbol);
+#ifdef CRASH_MERGE
+	if ((best_pst != NULL) &&
+	  gdb_line_number_callback(pc, pst->text_low (objfile), pst->text_high (objfile)))
+#else
 	if (best_pst != NULL)
+#endif
 	  return best_pst;
       }
 

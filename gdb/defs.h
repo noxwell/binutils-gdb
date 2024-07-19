@@ -604,4 +604,7 @@ DEF_ENUM_FLAGS_TYPE (enum user_selected_what_flag, user_selected_what);
 
 #include "utils.h"
 
+#ifdef CRASH_MERGE
+extern "C" int gdb_main_entry(int, char **);
+#endif
 #endif /* #ifndef DEFS_H */

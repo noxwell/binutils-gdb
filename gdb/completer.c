@@ -2846,6 +2846,8 @@ gdb_display_match_list_1 (char **matches, int len, int max,
 
   /* How many items of MAX length can we fit in the screen window? */
   cols = gdb_complete_get_screenwidth (displayer);
+  rl_reset_screen_size();
+  rl_get_screen_size(NULL, &cols);
   max += 2;
   limit = cols / max;
   if (limit != 1 && (limit * max == cols))

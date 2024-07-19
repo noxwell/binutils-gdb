@@ -582,7 +582,9 @@ lookup_minimal_symbol_linkage (const char *name, struct objfile *objf)
 	{
 	  if (strcmp (msymbol->linkage_name (), name) == 0
 	      && (msymbol->type () == mst_data
-		  || msymbol->type () == mst_bss))
+		  || msymbol->type () == mst_bss
+		  || msymbol->type () == mst_file_bss
+		  || msymbol->type () == mst_file_data))
 	    return {msymbol, objfile};
 	}
     }
